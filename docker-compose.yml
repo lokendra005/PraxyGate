@@ -1,0 +1,29 @@
+# Local development: Redis for the budget store, plus the gateway itself.
+# For the tightest inner loop run only Redis here and use `uvicorn --reload`.
+services:
+  redis:
+    image: redis:7-alpine
+    # Host port 6380 avoids clashing with any Redis already bound to 6379.
+    # Containers on this network still reach it internally on 6379 (see gateway).
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: local
+      REDIS_URL: redis://redis:6379/0
+      DAILY_REQUEST_LIMIT: 20
+      LLM_MODEL: ${LLM_MODEL:-openrouter/openai/gpt-4o-mini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT_SECONDS: 30
+    depends_on:
+      redis:
+        condition: service_healthy
