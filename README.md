@@ -16,7 +16,7 @@ Client → FastAPI Gateway → Budget Enforcement (Redis) → LLM Gateway (LiteL
 
 ## Live Deployment
 
-- Live URL: `TODO: <railway-url>` (see [Railway deployment](#railway-deployment))
+- Live URL: `TODO: <render-url>` (see [Deployment](#deployment))
 - Loom demo: `TODO: <loom-url>`
 
 ## Architecture
@@ -317,36 +317,66 @@ by staying stateless:
 - Fail-open means no spend enforcement during a Redis outage (by design).
 - Concurrency is verified against the Redis primitive; a full multi-instance integration test is out of timebox scope.
 
-## Railway Deployment
+## Deployment
 
-Railway builds directly from the `Dockerfile` (configured via `railway.json`).
+The service is a stateless, non-root container that binds `0.0.0.0:$PORT` and
+uses `/health` as its healthcheck, so it deploys unchanged to any container host.
+Redis is configured entirely through `REDIS_URL` (no code change for TLS/auth).
+
+`railway.json` targets Railway (the stack in the brief). The live instance is
+hosted on **Render (free web service) + Upstash (free Redis)** because managed
+Redis add-ons are paid — all three deploy from the same `Dockerfile` with no code
+changes, which is the point of treating infra as configuration.
+
+### Option A — Railway (config included: `railway.json`)
 
 1. **Push to GitHub**, then in Railway: **New Project → Deploy from GitHub repo**.
-2. **Add Redis**: project → **New → Database → Add Redis**. This provisions Redis and exposes `REDIS_URL`.
-3. On the gateway service → **Variables**, set:
+2. **Add Redis**: project → **New → Database → Add Redis** (exposes `REDIS_URL`).
+3. Gateway service → **Variables**:
    ```
    APP_ENV=production
-   LLM_API_KEY=sk-or-...                       # your OpenRouter key
+   LLM_API_KEY=sk-or-...
    LLM_MODEL=openrouter/openai/gpt-4o-mini
    DAILY_REQUEST_LIMIT=20
-   REDIS_URL=${{Redis.REDIS_URL}}              # reference the Redis plugin
+   REDIS_URL=${{Redis.REDIS_URL}}
    ```
    Do **not** set `PORT` — Railway injects it and the app reads `$PORT`.
-4. **Deploy.** Generate a public domain under **Settings → Networking**.
-5. **Verify:**
-   ```bash
-   BASE=https://<your-app>.up.railway.app
-   curl $BASE/health     # {"status":"ok"}
-   curl $BASE/ready      # {"status":"ready","dependencies":{"redis":"ok"}}
-   curl -N -X POST $BASE/chat -H 'content-type: application/json' \
-     -d '{"user_id":"demo","message":"Give me 3 backend interview tips."}'
+4. **Deploy**, then generate a domain under **Settings → Networking**.
+
+### Option B — Render + Upstash (free tier, used for the live demo)
+
+1. **Redis → Upstash** ([upstash.com](https://upstash.com)): create a free database and copy its **`rediss://...`** URL. (No code change — the app reads TLS URLs directly.)
+2. **App → Render** ([render.com](https://render.com)): **New → Web Service** → connect this GitHub repo. Render detects the `Dockerfile`; choose runtime **Docker**, instance type **Free**. (Do **not** add Render's paid Redis add-on — Upstash covers Redis for free.)
+3. **Health Check Path:** `/health`.
+4. **Environment variables:**
    ```
-6. Put the live URL in the [Live Deployment](#live-deployment) section above.
+   APP_ENV=production
+   LLM_API_KEY=sk-or-...
+   LLM_MODEL=openrouter/openai/gpt-4o-mini
+   DAILY_REQUEST_LIMIT=20
+   REDIS_URL=rediss://...            # the Upstash URL
+   ```
+   Do **not** set `PORT` — Render injects it and the app reads `$PORT`.
+5. **Create Web Service.** Render builds the image and gives you a `*.onrender.com` URL.
+
+> Render free web services spin down after ~15 min idle; the first request
+> cold-starts (~30–60s). Hit `/health` once to warm it before a demo.
+
+### Verify (either platform)
+
+```bash
+BASE=https://<your-app-domain>
+curl $BASE/health     # {"status":"ok"}
+curl $BASE/ready      # {"status":"ready","dependencies":{"redis":"ok"}}
+curl -N -X POST $BASE/chat -H 'content-type: application/json' \
+  -d '{"user_id":"demo","message":"Give me 3 backend interview tips."}'
+```
+
+Then put the live URL in the [Live Deployment](#live-deployment) section above.
 
 Notes: with `APP_ENV=production` the app **fails fast at startup** if `LLM_API_KEY`
-is missing (a deliberate guardrail). The image runs as a non-root user, binds
-`0.0.0.0:$PORT`, and uses `/health` as the healthcheck — so it also drops into
-Render, Fly.io, or any container host unchanged.
+is missing (a deliberate guardrail). Free tiers scale to zero, so the first
+request after idle has a cold start — hit `/health` once to warm it before a demo.
 
 ### Redis with TLS / auth
 
