@@ -16,7 +16,7 @@ Client → FastAPI Gateway → Budget Enforcement (Redis) → LLM Gateway (LiteL
 
 ## Live Deployment
 
-- Live URL: `TODO: <render-url>` (see [Deployment](#deployment))
+- Live URL: **https://praxygate.onrender.com** (see [Deployment](#deployment))
 - Loom demo: `TODO: <loom-url>`
 
 ## Architecture
